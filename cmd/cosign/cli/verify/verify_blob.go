@@ -115,41 +115,14 @@ func (c *VerifyBlobCmd) Exec(ctx context.Context, blobRef string) error {
 		return fmt.Errorf("timestamp-certificate-chain is required to validate a RFC3161 timestamp")
 	}
 	if c.KeyOpts.TSACertChainPath != "" {
-		leaves, intermediates, roots, err := cosign.GetTSACerts(ctx)
+		tsaCertificates, err := cosign.GetTSACerts(ctx, c.TSACertChainPath, cosign.GetTufTargets)
 		if err != nil {
-			return fmt.Errorf("unable to get TSA certificates: %w", err)
+			ui.Warnf(ctx, fmt.Sprintf("unable to load or get TSA certificates: %s", err.Error()))
+		} else {
+			co.TSACertificate = tsaCertificates.LeafCert
+			co.TSARootCertificates = tsaCertificates.RootCert
+			co.TSAIntermediateCertificates = tsaCertificates.IntermediateCerts
 		}
-		if len(leaves) > 1 {
-			return fmt.Errorf("certificate chain must contain at most one TSA certificate")
-		}
-		if len(leaves) == 1 {
-			certs, err := cryptoutils.UnmarshalCertificatesFromPEM(leaves[0])
-			if err != nil {
-				return fmt.Errorf("error parsing TSA certificate: %w", err)
-			}
-			if len(certs) != 1 {
-				return fmt.Errorf("expected a single TSA certificate, got %d", len(certs))
-			}
-			co.TSACertificate = certs[0]
-		}
-		var allIntermediateCerts []*x509.Certificate
-		for _, intermediate := range intermediates {
-			certs, err := cryptoutils.UnmarshalCertificatesFromPEM(intermediate)
-			if err != nil {
-				return fmt.Errorf("error parsing TSA intermediate certificates: %w", err)
-			}
-			allIntermediateCerts = append(allIntermediateCerts, certs...)
-		}
-		co.TSAIntermediateCertificates = allIntermediateCerts
-		var allRootCerts []*x509.Certificate
-		for _, root := range roots {
-			certs, err := cryptoutils.UnmarshalCertificatesFromPEM(root)
-			if err != nil {
-				return fmt.Errorf("error parsing TSA root certificates: %w", err)
-			}
-			allRootCerts = append(allRootCerts, certs...)
-		}
-		co.TSARootCertificates = allRootCerts
 	}
 
 	if !c.IgnoreTlog {

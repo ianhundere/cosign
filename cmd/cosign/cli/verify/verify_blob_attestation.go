@@ -25,16 +25,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"os"
-	"path/filepath"
-
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/sigstore/cosign/v2/cmd/cosign/cli/fulcio"
 	"github.com/sigstore/cosign/v2/cmd/cosign/cli/options"
 	"github.com/sigstore/cosign/v2/cmd/cosign/cli/rekor"
 	internal "github.com/sigstore/cosign/v2/internal/pkg/cosign"
 	payloadsize "github.com/sigstore/cosign/v2/internal/pkg/cosign/payload/size"
+	"github.com/sigstore/cosign/v2/internal/ui"
 	"github.com/sigstore/cosign/v2/pkg/blob"
 	"github.com/sigstore/cosign/v2/pkg/cosign"
 	"github.com/sigstore/cosign/v2/pkg/cosign/bundle"
@@ -44,6 +41,10 @@ import (
 	"github.com/sigstore/cosign/v2/pkg/policy"
 	sigs "github.com/sigstore/cosign/v2/pkg/signature"
 	"github.com/sigstore/sigstore/pkg/cryptoutils"
+
+	"io"
+	"os"
+	"path/filepath"
 )
 
 // VerifyBlobAttestationCommand verifies an attestation on a supplied blob
@@ -142,42 +143,14 @@ func (c *VerifyBlobAttestationCommand) Exec(ctx context.Context, artifactPath st
 	if c.RFC3161TimestampPath != "" && c.KeyOpts.TSACertChainPath == "" {
 		return fmt.Errorf("timestamp-cert-chain is required to validate a rfc3161 timestamp bundle")
 	}
-	if c.KeyOpts.TSACertChainPath != "" {
-		leaves, intermediates, roots, err := cosign.GetTSACerts(ctx)
-		if err != nil {
-			return fmt.Errorf("unable to get TSA certificates: %w", err)
-		}
-		if len(leaves) > 1 {
-			return fmt.Errorf("certificate chain must contain at most one TSA certificate")
-		}
-		if len(leaves) == 1 {
-			certs, err := cryptoutils.UnmarshalCertificatesFromPEM(leaves[0])
-			if err != nil {
-				return fmt.Errorf("error parsing TSA certificate: %w", err)
-			}
-			if len(certs) != 1 {
-				return fmt.Errorf("expected a single TSA certificate, got %d", len(certs))
-			}
-			co.TSACertificate = certs[0]
-		}
-		var allIntermediateCerts []*x509.Certificate
-		for _, intermediate := range intermediates {
-			certs, err := cryptoutils.UnmarshalCertificatesFromPEM(intermediate)
-			if err != nil {
-				return fmt.Errorf("error parsing TSA intermediate certificates: %w", err)
-			}
-			allIntermediateCerts = append(allIntermediateCerts, certs...)
-		}
-		co.TSAIntermediateCertificates = allIntermediateCerts
-		var allRootCerts []*x509.Certificate
-		for _, root := range roots {
-			certs, err := cryptoutils.UnmarshalCertificatesFromPEM(root)
-			if err != nil {
-				return fmt.Errorf("error parsing TSA root certificates: %w", err)
-			}
-			allRootCerts = append(allRootCerts, certs...)
-		}
-		co.TSARootCertificates = allRootCerts
+
+	tsaCertificates, err := cosign.GetTSACerts(ctx, c.TSACertChainPath, cosign.GetTufTargets)
+	if err != nil {
+		ui.Warnf(ctx, fmt.Sprintf("cannot load tsa certificates: %s", err.Error()))
+	} else {
+		co.TSACertificate = tsaCertificates.LeafCert
+		co.TSARootCertificates = tsaCertificates.RootCert
+		co.TSAIntermediateCertificates = tsaCertificates.IntermediateCerts
 	}
 
 	if !c.IgnoreTlog {

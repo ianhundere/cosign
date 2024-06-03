@@ -17,7 +17,6 @@ package verify
 
 import (
 	"context"
-	"crypto/x509"
 	"errors"
 	"flag"
 	"fmt"
@@ -38,7 +37,6 @@ import (
 	"github.com/sigstore/cosign/v2/pkg/oci"
 	"github.com/sigstore/cosign/v2/pkg/policy"
 	sigs "github.com/sigstore/cosign/v2/pkg/signature"
-	"github.com/sigstore/sigstore/pkg/cryptoutils"
 )
 
 // VerifyAttestationCommand verifies a signature on a supplied container image
@@ -119,43 +117,15 @@ func (c *VerifyAttestationCommand) Exec(ctx context.Context, images []string) (e
 		}
 	}
 
-	if c.TSACertChainPath != "" {
-		leaves, intermediates, roots, err := cosign.GetTSACerts(ctx)
-		if err != nil {
-			return fmt.Errorf("unable to get TSA certificates: %w", err)
-		}
-		if len(leaves) > 1 {
-			return fmt.Errorf("certificate chain must contain at most one TSA certificate")
-		}
-		if len(leaves) == 1 {
-			certs, err := cryptoutils.UnmarshalCertificatesFromPEM(leaves[0])
-			if err != nil {
-				return fmt.Errorf("error parsing TSA certificate: %w", err)
-			}
-			if len(certs) != 1 {
-				return fmt.Errorf("expected a single TSA certificate, got %d", len(certs))
-			}
-			co.TSACertificate = certs[0]
-		}
-		var allIntermediateCerts []*x509.Certificate
-		for _, intermediate := range intermediates {
-			certs, err := cryptoutils.UnmarshalCertificatesFromPEM(intermediate)
-			if err != nil {
-				return fmt.Errorf("error parsing TSA intermediate certificates: %w", err)
-			}
-			allIntermediateCerts = append(allIntermediateCerts, certs...)
-		}
-		co.TSAIntermediateCertificates = allIntermediateCerts
-		var allRootCerts []*x509.Certificate
-		for _, root := range roots {
-			certs, err := cryptoutils.UnmarshalCertificatesFromPEM(root)
-			if err != nil {
-				return fmt.Errorf("error parsing TSA root certificates: %w", err)
-			}
-			allRootCerts = append(allRootCerts, certs...)
-		}
-		co.TSARootCertificates = allRootCerts
+	tsaCertificates, err := cosign.GetTSACerts(ctx, c.TSACertChainPath, cosign.GetTufTargets)
+	if err != nil {
+		ui.Warnf(ctx, fmt.Sprintf("cannot load tsa certificates: %s", err.Error()))
+	} else {
+		co.TSACertificate = tsaCertificates.LeafCert
+		co.TSARootCertificates = tsaCertificates.RootCert
+		co.TSAIntermediateCertificates = tsaCertificates.IntermediateCerts
 	}
+
 	if !c.IgnoreTlog {
 		if c.RekorURL != "" {
 			rekorClient, err := rekor.NewClient(c.RekorURL)
@@ -171,6 +141,7 @@ func (c *VerifyAttestationCommand) Exec(ctx context.Context, images []string) (e
 			return fmt.Errorf("getting Rekor public keys: %w", err)
 		}
 	}
+
 	if keylessVerification(c.KeyRef, c.Sk) {
 		// This performs an online fetch of the Fulcio roots. This is needed
 		// for verifying keyless certificates (both online and offline).
@@ -183,6 +154,7 @@ func (c *VerifyAttestationCommand) Exec(ctx context.Context, images []string) (e
 			return fmt.Errorf("getting Fulcio intermediates: %w", err)
 		}
 	}
+
 	keyRef := c.KeyRef
 
 	// Keys are optional!
