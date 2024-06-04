@@ -68,7 +68,6 @@ func TestGetTSACertsFromEnv(t *testing.T) {
 	os.Setenv("SIGSTORE_TSA_CERTIFICATE_FILE", tempFile.Name())
 	defer os.Unsetenv("SIGSTORE_TSA_CERTIFICATE_FILE")
 
-
 	tsaCerts, err := GetTSACerts(context.Background(), tempFile.Name(), GetTufTargets)
 	if err != nil {
 		t.Fatalf("Failed to get TSA certs from env: %v", err)
@@ -98,8 +97,18 @@ func TestGetTSACertsFromPath(t *testing.T) {
 }
 
 func TestGetTSACertsFromTUF(t *testing.T) {
-	tsaCerts, err := GetTSACerts(context.Background(), "", MockGetTufTargets)
+	originalValue := os.Getenv("SIGSTORE_TSA_CERTIFICATE_FILE")
+	os.Unsetenv("SIGSTORE_TSA_CERTIFICATE_FILE")
+	defer os.Setenv("SIGSTORE_TSA_CERTIFICATE_FILE", originalValue)
 
+	tempFile, err := os.CreateTemp("", "tsa_cert_chain.pem")
+	require.NoError(t, err)
+	defer os.Remove(tempFile.Name())
+
+	_, err = tempFile.Write([]byte(testLeafCert + "\n" + testRootCert))
+	require.NoError(t, err)
+
+	tsaCerts, err := GetTSACerts(context.Background(), tempFile.Name(), MockGetTufTargets)
 	if err != nil {
 		t.Fatalf("Failed to get TSA certs from TUF: %v", err)
 	}

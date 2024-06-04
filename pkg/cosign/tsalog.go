@@ -49,20 +49,18 @@ func GetTufTargets(name string) ([]byte, error) {
 // By default, the certificates come from TUF, but you can override this for test
 // purposes by using an env variable `SIGSTORE_TSA_CERTIFICATE_FILE` or a file path
 // specified in `TSACertChainPath`. If using an alternate, the file should be in PEM format.
-func GetTSACerts(ctx context.Context, certChainPath string, fn GetTargetStub) (*TSACertificates, error) {
+func GetTSACerts(_ context.Context, certChainPath string, fn GetTargetStub) (*TSACertificates, error) {
 	altTSACert := env.Getenv(env.VariableSigstoreTSACertificateFile)
 
 	var raw []byte
 	var err error
 
-	if altTSACert != "" {
+	switch {
+	case altTSACert != "":
 		raw, err = os.ReadFile(altTSACert)
-	} else if certChainPath != "" {
+	case certChainPath != "":
 		raw, err = os.ReadFile(certChainPath)
-	} else {
-		if err != nil {
-			return nil, err
-		}
+	default:
 		leafCert, err := fn(tsaLeafCertStr)
 		if err != nil {
 			return nil, fmt.Errorf("error fetching TSA leaf certificate: %w", err)
