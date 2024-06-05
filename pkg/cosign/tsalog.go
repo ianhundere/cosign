@@ -15,13 +15,14 @@
 package cosign
 
 import (
+	"bytes"
 	"context"
 	"crypto/x509"
 	"fmt"
 	"os"
 
-	"github.com/sigstore/cosign/v2/internal/pkg/cosign/tsa"
 	"github.com/sigstore/cosign/v2/pkg/cosign/env"
+	"github.com/sigstore/sigstore/pkg/cryptoutils"
 	"github.com/sigstore/sigstore/pkg/tuf"
 )
 
@@ -101,7 +102,7 @@ func GetTSACerts(_ context.Context, certChainPath string, fn GetTargetStub) (*TS
 		return nil, fmt.Errorf("error reading TSA certificate file: %w", err)
 	}
 
-	leaves, intermediates, roots, err := tsa.SplitPEMCertificateChain(raw)
+	leaves, intermediates, roots, err := splitPEMCertificateChain(raw)
 	if err != nil {
 		return nil, fmt.Errorf("error splitting TSA certificates: %w", err)
 	}
@@ -114,4 +115,28 @@ func GetTSACerts(_ context.Context, certChainPath string, fn GetTargetStub) (*TS
 		IntermediateCerts: intermediates,
 		RootCert:          roots,
 	}, nil
+}
+
+// splitPEMCertificateChain returns a list of leaf (non-CA) certificates, a certificate pool for
+// intermediate CA certificates, and a certificate pool for root CA certificates
+func splitPEMCertificateChain(pem []byte) (leaves, intermediates, roots []*x509.Certificate, err error) {
+	certs, err := cryptoutils.UnmarshalCertificatesFromPEM(pem)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	for _, cert := range certs {
+		if !cert.IsCA {
+			leaves = append(leaves, cert)
+		} else {
+			// root certificates are self-signed
+			if bytes.Equal(cert.RawSubject, cert.RawIssuer) {
+				roots = append(roots, cert)
+			} else {
+				intermediates = append(intermediates, cert)
+			}
+		}
+	}
+
+	return leaves, intermediates, roots, nil
 }
