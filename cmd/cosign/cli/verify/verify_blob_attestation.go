@@ -147,7 +147,7 @@ func (c *VerifyBlobAttestationCommand) Exec(ctx context.Context, artifactPath st
 
 	tsaCertificates, err := cosign.GetTSACerts(ctx, c.TSACertChainPath, cosign.GetTufTargets)
 	if err != nil {
-		ui.Warnf(ctx, fmt.Sprintf("cannot load tsa certificates: %s", err.Error()))
+		ui.Warnf(ctx, fmt.Sprintf("unable to load or get TSA certificates: %s", err.Error()))
 	} else {
 		co.TSACertificate = tsaCertificates.LeafCert
 		co.TSARootCertificates = tsaCertificates.RootCert

@@ -140,12 +140,11 @@ var (
 			External:    true,
 		},
 		VariableSigstoreTSACertificateFile: {
-			Description: "path to the TSA certificate file used by Sigstore",
+			Description: "path to the concatenated PEM-encoded TSA certificate file (leaf, intermediate(s), root) used by Sigstore",
 			Expects:     "path to the TSA certificate file",
 			Sensitive:   false,
 			External:    true,
 		},
-
 		VariableGitHubHost: {
 			Description: "is URL of the GitHub Enterprise instance",
 			Expects:     "string with the URL of GitHub Enterprise instance",

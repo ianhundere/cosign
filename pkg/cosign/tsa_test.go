@@ -108,7 +108,7 @@ func TestGetTSACertsFromTUF(t *testing.T) {
 	_, err = tempFile.Write([]byte(testLeafCert + "\n" + testRootCert))
 	require.NoError(t, err)
 
-	tsaCerts, err := GetTSACerts(context.Background(), tempFile.Name(), MockGetTufTargets)
+	tsaCerts, err := GetTSACerts(context.Background(), tempFile.Name(), GetTufTargets)
 	if err != nil {
 		t.Fatalf("Failed to get TSA certs from TUF: %v", err)
 	}

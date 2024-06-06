@@ -27,9 +27,9 @@ import (
 )
 
 const (
-	tsaLeafCertStr                = `tsa_leaf.crt.pem`
-	tsaRootCertStr                = `tsa_root.crt.pem`
-	tsaIntermediateCertStrPattern = `tsa_intermediate_%d.crt.pem`
+	TsaLeafCertStr                = `tsa_leaf.crt.pem`
+	TsaRootCertStr                = `tsa_root.crt.pem`
+	TsaIntermediateCertStrPattern = `tsa_intermediate_%d.crt.pem`
 )
 
 type TSACertificates struct {
@@ -38,11 +38,26 @@ type TSACertificates struct {
 	RootCert          []*x509.Certificate
 }
 
-type GetTargetStub func(name string) ([]byte, error)
+type GetTargetStub func(ctx context.Context, usage tuf.UsageKind, names []string) ([]*x509.Certificate, error)
 
-func GetTufTargets(name string) ([]byte, error) {
-	tufClient, _ := tuf.NewFromEnv(context.Background())
-	return tufClient.GetTarget(name)
+func GetTufTargets(ctx context.Context, usage tuf.UsageKind, names []string) ([]*x509.Certificate, error) {
+	tufClient, err := tuf.NewFromEnv(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("error creating TUF client: %w", err)
+	}
+	var allCerts []*x509.Certificate
+	targets, err := tufClient.GetTargetsByMeta(usage, names)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching targets by metadata with usage %v: %w", usage, err)
+	}
+	for _, target := range targets {
+		certs, _, _, err := splitPEMCertificateChain(target.Target)
+		if err != nil {
+			return nil, fmt.Errorf("error splitting PEM certificate chain for target: %w", err)
+		}
+		allCerts = append(allCerts, certs...)
+	}
+	return allCerts, nil
 }
 
 // GetTSACerts retrieves trusted TSA certificates from the embedded or cached
@@ -50,7 +65,7 @@ func GetTufTargets(name string) ([]byte, error) {
 // By default, the certificates come from TUF, but you can override this for test
 // purposes by using an env variable `SIGSTORE_TSA_CERTIFICATE_FILE` or a file path
 // specified in `TSACertChainPath`. If using an alternate, the file should be in PEM format.
-func GetTSACerts(_ context.Context, certChainPath string, fn GetTargetStub) (*TSACertificates, error) {
+func GetTSACerts(ctx context.Context, certChainPath string, fn GetTargetStub) (*TSACertificates, error) {
 	altTSACert := env.Getenv(env.VariableSigstoreTSACertificateFile)
 
 	var raw []byte
@@ -62,33 +77,33 @@ func GetTSACerts(_ context.Context, certChainPath string, fn GetTargetStub) (*TS
 	case certChainPath != "":
 		raw, err = os.ReadFile(certChainPath)
 	default:
-		leafCert, err := fn(tsaLeafCertStr)
+		leafCert, err := fn(ctx, 0, []string{TsaLeafCertStr})
 		if err != nil {
 			return nil, fmt.Errorf("error fetching TSA leaf certificate: %w", err)
 		}
-		rootCert, err := fn(tsaRootCertStr)
+		rootCert, err := fn(ctx, 0, []string{TsaRootCertStr})
 		if err != nil {
 			return nil, fmt.Errorf("error fetching TSA root certificate: %w", err)
 		}
 		var intermediates []*x509.Certificate
 		for i := 0; ; i++ {
-			intermediateCertStr := fmt.Sprintf(tsaIntermediateCertStrPattern, i)
-			intermediateCert, err := fn(intermediateCertStr)
+			intermediateCertStr := fmt.Sprintf(TsaIntermediateCertStrPattern, i)
+			intermediateCert, err := fn(ctx, 0, []string{intermediateCertStr})
 			if err != nil {
 				break
 			}
-			intermediateCertParsed, err := x509.ParseCertificate(intermediateCert)
-			if err != nil {
+			intermediateCertParsed := intermediateCert[0]
+			if intermediateCertParsed == nil {
 				return nil, fmt.Errorf("error parsing TSA intermediate certificate: %w", err)
 			}
 			intermediates = append(intermediates, intermediateCertParsed)
 		}
-		leafCertParsed, err := x509.ParseCertificate(leafCert)
-		if err != nil {
+		leafCertParsed := leafCert[0]
+		if leafCertParsed == nil {
 			return nil, fmt.Errorf("error parsing TSA leaf certificate: %w", err)
 		}
-		rootCertParsed, err := x509.ParseCertificate(rootCert)
-		if err != nil {
+		rootCertParsed := rootCert[0]
+		if rootCertParsed == nil {
 			return nil, fmt.Errorf("error parsing TSA root certificate: %w", err)
 		}
 		return &TSACertificates{
@@ -106,6 +121,7 @@ func GetTSACerts(_ context.Context, certChainPath string, fn GetTargetStub) (*TS
 	if err != nil {
 		return nil, fmt.Errorf("error splitting TSA certificates: %w", err)
 	}
+
 	if len(leaves) > 1 {
 		return nil, fmt.Errorf("TSA certificate chain must contain at most one TSA certificate")
 	}
